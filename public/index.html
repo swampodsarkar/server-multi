@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watch-Time Bot — Multi-Device Viewer</title>
+<style>
+  :root {
+    --bg: #0f0f0f; --card: #1a1a2e; --card2: #16213e; --line: #2a2a4a;
+    --txt: #eaeaea; --dim: #8899aa; --red: #ff0000; --red-dark: #cc0000;
+    --blue: #3b82f6; --green: #22c55e; --yellow: #eab308; --purple: #a855f7;
+    --glass: rgba(255,255,255,0.04); --glass-border: rgba(255,255,255,0.08);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--txt); min-height:100vh; }
+
+  /* YouTube-like top bar */
+  .topbar {
+    background:#0f0f0f; border-bottom:1px solid var(--line);
+    padding:0 20px; height:56px; display:flex; align-items:center; gap:16px;
+    position:sticky; top:0; z-index:100;
+  }
+  .logo { font-size:20px; font-weight:700; color:var(--red); letter-spacing:-0.5px; cursor:default; }
+  .logo span { color:var(--txt); }
+  .topbar .search { flex:1; max-width:560px; margin:0 auto; position:relative; }
+  .topbar .search input {
+    width:100%; padding:8px 16px 8px 36px; border-radius:20px;
+    border:1px solid var(--line); background:#1a1a2e; color:var(--txt); font-size:14px;
+  }
+  .topbar .search input:focus { outline:1px solid var(--blue); }
+  .topbar .search::before { content:'🔍'; position:absolute; left:12px; top:50%; transform:translateY(-50%); font-size:13px; }
+  .avatar { width:32px; height:32px; border-radius:50%; background:var(--red); display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:600; color:#fff; }
+
+  /* Main layout */
+  .main { max-width:1200px; margin:0 auto; padding:20px; }
+
+  /* Hero stats */
+  .hero {
+    background: linear-gradient(135deg, #1a1a2e 0%, #0f0f23 100%);
+    border:1px solid var(--glass-border); border-radius:16px;
+    padding:24px 28px; margin-bottom:20px;
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:16px;
+  }
+  .stat { text-align:center; }
+  .stat .value { font-size:32px; font-weight:700; color:var(--red); font-variant-numeric:tabular-nums; }
+  .stat .label { font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:.5px; margin-top:4px; }
+  .stat .sub { font-size:11px; color:var(--dim); margin-top:2px; }
+
+  /* Control card */
+  .card {
+    background:var(--card); border:1px solid var(--glass-border);
+    border-radius:12px; padding:20px; margin-bottom:16px;
+  }
+  .card h2 { font-size:15px; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+  label { font-size:11px; color:var(--dim); display:block; margin-bottom:5px; text-transform:uppercase; letter-spacing:.4px; }
+  input, select {
+    width:100%; padding:9px 12px; font-size:14px; border-radius:8px;
+    border:1px solid var(--line); background:#12121a; color:var(--txt);
+  }
+  input:focus, select:focus { outline:1px solid var(--blue); }
+  .acts { display:flex; gap:10px; margin-top:14px; }
+  .acts button { flex:1; padding:11px; font-size:14px; font-weight:600; border:none; border-radius:8px; cursor:pointer; transition:all .15s; }
+  #startBtn { background:var(--red); color:#fff; }
+  #startBtn:hover { background:var(--red-dark); }
+  #startBtn:disabled { opacity:.5; cursor:not-allowed; }
+  #stopBtn { background:#2a2a3e; color:var(--txt); border:1px solid var(--line); }
+  #stopBtn:hover { border-color:var(--red); color:var(--red); }
+
+  /* Tab cards */
+  .tabs-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; }
+  .tab-card {
+    background:var(--card); border:1px solid var(--glass-border);
+    border-radius:12px; padding:16px; transition:border-color .2s;
+  }
+  .tab-card:hover { border-color:var(--blue); }
+  .tab-card .tab-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .tab-card .device-name { font-weight:600; font-size:14px; }
+  .tab-card .badge { padding:3px 8px; border-radius:5px; font-size:10px; font-weight:600; text-transform:uppercase; }
+  .badge-mobile { background:#1e3a5f; color:#93c5fd; }
+  .badge-desk { background:#3f2f10; color:#fcd34d; }
+  .badge-paused { background:#7f1d1d; color:#fca5a5; }
+  .badge-live { background:#14532d; color:#86efac; animation:pulse 1.5s infinite; }
+  @keyframes pulse { 50% { opacity:.5; } }
+
+  .tab-card .progress-bar {
+    width:100%; height:6px; background:#1a1a2e; border-radius:3px; overflow:hidden; margin:8px 0;
+  }
+  .tab-card .progress-fill {
+    height:100%; background:linear-gradient(90deg, var(--red), #ff6b6b); border-radius:3px;
+    transition:width .5s ease;
+  }
+  .tab-card .stats { display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:12px; }
+  .tab-card .stats .k { color:var(--dim); }
+  .tab-card .stats .v { color:var(--txt); font-weight:500; }
+  .tab-card .ua { font-size:10px; color:var(--dim); word-break:break-all; margin-top:8px; line-height:1.4; }
+
+  /* Total bar */
+  .total-bar {
+    background:linear-gradient(135deg, #1a1a2e, #2d1a3e);
+    border:1px solid rgba(168,85,247,0.3); border-radius:12px;
+    padding:18px 24px; margin-bottom:16px;
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
+  }
+  .total-bar .big { font-size:28px; font-weight:700; color:var(--purple); font-variant-numeric:tabular-nums; }
+  .total-bar .big span { font-size:14px; color:var(--dim); font-weight:400; }
+  .total-bar .meta { font-size:12px; color:var(--dim); text-align:right; }
+
+  /* Chart */
+  .chart-wrap { position:relative; height:120px; background:#12121a; border-radius:8px; overflow:hidden; }
+  .chart-wrap canvas { width:100%; height:100%; }
+
+  /* Log */
+  .log { font-size:11px; color:var(--dim); max-height:80px; overflow-y:auto; background:#0a0a0f; border-radius:6px; padding:8px 10px; margin-top:10px; }
+  .log .line { padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.03); }
+  .log .time { color:var(--blue); margin-right:6px; }
+
+  /* Empty */
+  .empty { color:var(--dim); text-align:center; padding:40px 20px; font-size:14px; }
+
+  /* Responsive */
+  @media (max-width:640px) {
+    .hero { grid-template-columns:1fr 1fr; }
+    .stat .value { font-size:24px; }
+    .tabs-grid { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- YouTube-like topbar -->
+<header class="topbar">
+  <div class="logo">▶ <span>WatchTime</span>Bot</div>
+  <div class="search"><input type="text" placeholder="Search or paste video URL..." id="urlInput" value=""></div>
+  <div class="avatar" id="userAvatar">WT</div>
+</header>
+
+<div class="main">
+
+  <!-- Hero stats -->
+  <div class="hero">
+    <div class="stat">
+      <div class="value" id="totalWatch">0.0s</div>
+      <div class="label">Total Watch Time</div>
+      <div class="sub" id="totalTabs">0 tabs active</div>
+    </div>
+    <div class="stat">
+      <div class="value" id="activeTabs">0</div>
+      <div class="label">Active Tabs</div>
+      <div class="sub">simultaneous viewers</div>
+    </div>
+    <div class="stat">
+      <div class="value" id="avgTime">0.0s</div>
+      <div class="label">Avg per Tab</div>
+      <div class="sub">per device fingerprint</div>
+    </div>
+    <div class="stat">
+      <div class="value" id="uptime">--:--</div>
+      <div class="label">Session Uptime</div>
+      <div class="sub" id="sessionLabel">no session</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="card">
+    <h2>⚙️ Session Controls</h2>
+    <div class="grid">
+      <div>
+        <label>Target Video URL</label>
+        <input id="url" placeholder="https://yoursite.com/watch?v=..." value="">
+      </div>
+      <div>
+        <label>Tabs (viewers)</label>
+        <input id="tabs" type="number" value="4" min="1" max="10">
+      </div>
+      <div>
+        <label>Duration (seconds)</label>
+        <input id="secs" type="number" value="60" min="10" max="600">
+      </div>
+      <div>
+        <label>Video Selector</label>
+        <input id="sel" value="video" placeholder="video">
+      </div>
+    </div>
+    <div class="acts">
+      <button id="startBtn">▶ Start Session</button>
+      <button id="stopBtn" disabled>■ Stop</button>
+    </div>
+    <div class="log" id="log"><div class="line"><span class="time">--:--:--</span> System ready. URL বসিয়ে Start দিন।</div></div>
+  </div>
+
+  <!-- Total watch time chart -->
+  <div class="card" id="chartCard" style="display:none">
+    <h2>📊 Live Watch Time Chart</h2>
+    <div class="chart-wrap"><canvas id="chart"></canvas></div>
+  </div>
+
+  <!-- Tab cards -->
+  <div class="card" id="tabsCard" style="display:none">
+    <h2>🖥️ Active Viewers <span id="tabCount" style="font-size:12px;color:var(--dim);font-weight:400"></span></h2>
+    <div class="tabs-grid" id="tabsGrid"></div>
+  </div>
+
+</div>
+
+<script>
+const API_URL = ''; // Render backend URL বসাও
+const $ = id => document.getElementById(id);
+const logEl = $('log');
+const startBtn = $('startBtn');
+const stopBtn = $('stopBtn');
+
+function log(msg) {
+  const t = new Date().toTimeString().slice(0,8);
+  const line = document.createElement('div');
+  line.className = 'line';
+  line.innerHTML = `<span class="time">${t}</span> ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+async function api(path, body) {
+  try {
+    const r = await fetch(API_URL + path, body ? { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) } : undefined);
+    return await r.json();
+  } catch (e) {
+    return { error: 'Network error' };
+  }
+}
+
+startBtn.addEventListener('click', async () => {
+  const url = $('url').value.trim() || $('urlInput').value.trim();
+  if (!url) return alert('Target URL দিন');
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
+  log(`Session শুরু হচ্ছে... (${$('tabs').value} tabs)`);
+  const res = await api('/api/start', {
+    targetUrl: url,
+    numTabs: parseInt($('tabs').value) || 4,
+    sessionSeconds: parseInt($('secs').value) || 60,
+    selector: $('sel').value || 'video',
+  });
+  if (res.error) { log(`❌ ${res.error}`); startBtn.disabled = false; stopBtn.disabled = true; return; }
+  log(`✅ ${res.tabs} tabs চলছে — ${res.sessionSeconds}s session`);
+  $('chartCard').style.display = '';
+  $('tabsCard').style.display = '';
+  startChart();
+});
+
+stopBtn.addEventListener('click', async () => {
+  const res = await api('/api/stop');
+  log('⏹ Session বন্ধ');
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  $('totalWatch').textContent = '0.0s';
+  $('activeTabs').textContent = '0';
+  $('avgTime').textContent = '0.0s';
+  $('uptime').textContent = '--:--';
+  $('sessionLabel').textContent = 'no session';
+  $('totalTabs').textContent = '0 tabs active';
+  $('tabsGrid').innerHTML = '<div class="empty">কোনো active session নেই</div>';
+  stopChart();
+});
+
+/* Chart */
+const chartCtx = $('chart').getContext('2d');
+let chartData = [];
+let chartInterval = null;
+let chartMaxPoints = 60;
+
+function startChart() {
+  chartData = [];
+  $('chartCard').style.display = '';
+  chartInterval = setInterval(refresh, 2000);
+  drawChart();
+}
+function stopChart() {
+  clearInterval(chartInterval);
+  chartInterval = null;
+}
+
+function drawChart() {
+  const canvas = $('chart');
+  const ctx = chartCtx;
+  const w = canvas.parentElement.clientWidth;
+  const h = canvas.parentElement.clientHeight;
+  canvas.width = w * 2;
+  canvas.height = h * 2;
+  ctx.scale(2, 2);
+  ctx.clearRect(0, 0, w, h);
+
+  if (chartData.length < 2) return;
+
+  const maxVal = Math.max(...chartData, 1);
+  const pad = { top:10, bottom:20, left:40, right:10 };
+  const cw = w - pad.left - pad.right;
+  const ch = h - pad.top - pad.bottom;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (ch / 4) * i;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+    ctx.fillStyle = '#8899aa'; ctx.font = '10px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText((maxVal - (maxVal / 4) * i).toFixed(1) + 's', pad.left - 4, y + 3);
+  }
+
+  ctx.beginPath();
+  ctx.strokeStyle = '#a855f7';
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  chartData.forEach((v, i) => {
+    const x = pad.left + (cw / (chartMaxPoints - 1)) * i;
+    const y = pad.top + ch - (v / maxVal) * ch;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  ctx.lineTo(pad.left + cw, pad.top + ch);
+  ctx.lineTo(pad.left, pad.top + ch);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + ch);
+  grad.addColorStop(0, 'rgba(168,85,247,0.3)');
+  grad.addColorStop(1, 'rgba(168,85,247,0.0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+}
+
+/* Status polling */
+let pollTimer = null;
+async function refresh() {
+  const s = await fetch(API_URL + '/api/status').then(r => r.json());
+
+  if (!s.active) {
+    $('totalWatch').textContent = '0.0s';
+    $('activeTabs').textContent = '0';
+    $('avgTime').textContent = '0.0s';
+    $('uptime').textContent = '--:--';
+    $('sessionLabel').textContent = 'no session';
+    $('totalTabs').textContent = '0 tabs active';
+    $('tabsGrid').innerHTML = '<div class="empty">Idle</div>';
+    return;
+  }
+
+  const tabs = s.tabs || [];
+  const total = s.totalWatchTime || 0;
+  const avg = tabs.length ? (total / tabs.length).toFixed(1) : '0.0';
+  const elapsed = Math.round((Date.now() - (s.tabs[0]?.uptime ? Date.now() - s.tabs[0].uptime * 1000 : 0)) / 1000);
+
+  $('totalWatch').textContent = total.toFixed(1) + 's';
+  $('activeTabs').textContent = tabs.length;
+  $('avgTime').textContent = avg + 's';
+  $('totalTabs').textContent = tabs.length + ' tabs active';
+  $('sessionLabel').textContent = 'session live';
+
+  const elapsedSec = tabs.length && tabs[0].uptime ? tabs[0].uptime : 0;
+  const mins = Math.floor(elapsedSec / 60);
+  const secs = elapsedSec % 60;
+  $('uptime').textContent = String(mins).padStart(2,'0') + ':' + String(secs).padStart(2,'0');
+
+  $('tabsGrid').innerHTML = tabs.map((t, i) => {
+    const pct = t.lastTime > 0 ? Math.min(100, (t.lastTime / (s.sessionSeconds || 60)) * 100) : 0;
+    const stateBadge = t.paused === true
+      ? '<span class="badge badge-paused">PAUSED</span>'
+      : '<span class="badge badge-live">● LIVE</span>';
+    return `
+      <div class="tab-card">
+        <div class="tab-header">
+          <span class="device-name">${t.device || 'Unknown'}</span>
+          ${stateBadge}
+        </div>
+        <span class="badge ${t.isMobile ? 'badge-mobile' : 'badge-desk'}">${t.isMobile ? '📱 Mobile' : '🖥️ Desktop'}</span>
+        <div class="progress-bar"><div class="progress-fill" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="stats">
+          <div><span class="k">Watch:</span> <span class="v">${t.lastTime.toFixed(1)}s</span></div>
+          <div><span class="k">Screen:</span> <span class="v">${t.screen || '—'}</span></div>
+          <div><span class="k">Locale:</span> <span class="v">${t.locale || '—'}</span></div>
+          <div><span class="k">Pauses:</span> <span class="v">${t.humanPauses ?? 0}</span></div>
+        </div>
+        <div class="ua">${t.ua || ''}</div>
+      </div>`;
+  }).join('');
+
+  chartData.push(total);
+  if (chartData.length > chartMaxPoints) chartData.shift();
+  drawChart();
+}
+
+pollTimer = setInterval(refresh, 2000);
+refresh();
+</script>
+</body>
+</html>
