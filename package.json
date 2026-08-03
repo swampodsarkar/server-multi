@@ -1,0 +1,15 @@
+{
+  "name": "multi-tab-watchtime-tester",
+  "version": "1.0.0",
+  "description": "Playwright script to test whether a video platform accumulates watch time across multiple open tabs/windows.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node run-test.js",
+    "build": "bash setup.sh"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "playwright": "^1.48.0"
+  }
+}

@@ -1,0 +1,209 @@
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { chromium } from 'playwright';
+import { getDevicePool, pickRandomDevice, pickRandomLocale, pickRandomTimezone, randomViewport, randomDelay, shouldPause, randomScrollAmount } from './fake-devices.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  next();
+});
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let browser = null;
+let session = null;
+
+async function getBrowser() {
+  if (!browser || !browser.isConnected()) {
+    browser = await chromium.launch({ headless: true });
+  }
+  return browser;
+}
+
+app.get('/api/devices', (_req, res) => res.json(getDevicePool().map((d) => ({ name: d.name, isMobile: d.isMobile }))));
+
+app.post('/api/start', async (req, res) => {
+  const { targetUrl, numTabs = 4, sessionSeconds = 60, selector = 'video' } = req.body;
+  if (!targetUrl || targetUrl.startsWith('REPLACE')) {
+    return res.status(400).json({ error: 'targetUrl বসান (ভিডিও পেজ লিংক)' });
+  }
+  if (session) return res.status(409).json({ error: 'আগের session চলছে — আগে Stop করুন' });
+
+  const b = await getBrowser();
+  const devicePool = getDevicePool();
+  const usedNames = new Set();
+  const created = [];
+
+  for (let i = 0; i < numTabs; i++) {
+    const t = {
+      device: null,
+      page: null,
+      context: null,
+      info: null,
+      lastTime: 0,
+      paused: null,
+      errors: [],
+      startedAt: Date.now(),
+      totalWatched: 0,
+      lastRecordedTime: 0,
+      humanPauses: 0,
+      isBotDetected: false,
+    };
+
+    try {
+      const device = pickRandomDevice([...usedNames]);
+      usedNames.add(device.name);
+      t.device = device.name;
+      t.isMobile = device.isMobile;
+
+      const context = await browser.newContext({
+        userAgent: device.ua,
+        viewport: randomViewport(device.isMobile),
+        locale: pickRandomLocale(),
+        timezoneId: pickRandomTimezone(),
+        colorScheme: 'dark',
+        reducedMotion: 'reduce',
+        javaScriptEnabled: true,
+        isMobile: device.isMobile,
+        hasTouch: device.isMobile,
+        deviceScaleFactor: device.isMobile ? Math.floor(Math.random() * 3) + 1 : 1,
+      });
+
+      const page = await context.newPage();
+      page.setDefaultTimeout(15000);
+
+      await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+
+      t.context = context;
+      t.page = page;
+      t.info = await page.evaluate(() => ({
+        ua: navigator.userAgent,
+        isMobile: 'ontouchstart' in window,
+        platform: navigator.platform,
+        screen: `${screen.width}x${screen.height}`,
+        locale: navigator.language,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }));
+    } catch (e) {
+      t.errors.push(String(e));
+    }
+    created.push(t);
+    await sleep(randomDelay(200, 600));
+  }
+
+  for (const t of created) {
+    if (!t.page) continue;
+    try {
+      await t.page.evaluate((sel) => {
+        const el = document.querySelector(sel) || document.querySelector('video');
+        if (!el) return;
+        el.muted = true;
+        el.volume = 0;
+        el.play().catch(() => {});
+      }, selector);
+    } catch {}
+  }
+
+  session = { targetUrl, selector, tabs: created, startedAt: Date.now(), sessionSeconds };
+
+  (async () => {
+    const deadline = Date.now() + sessionSeconds * 1000;
+    let tick = 0;
+
+    while (Date.now() < deadline) {
+      tick++;
+
+      for (const t of created) {
+        if (!t.page) continue;
+        try {
+          if (shouldPause()) {
+            await t.page.evaluate((sel) => {
+              const el = document.querySelector(sel) || document.querySelector('video');
+              if (el && !el.paused) el.pause();
+            }, selector);
+            t.humanPauses++;
+            await sleep(randomDelay(1500, 4000));
+            await t.page.evaluate((sel) => {
+              const el = document.querySelector(sel) || document.querySelector('video');
+              if (el && el.paused && !el.ended) el.play().catch(() => {});
+            }, selector);
+          }
+
+          const scrollAmt = randomScrollAmount();
+          await t.page.evaluate((px) => window.scrollBy(0, px), scrollAmt);
+
+          await sleep(randomDelay(1500, 4500));
+
+          const st = await t.page.evaluate((sel) => {
+            const el = document.querySelector(sel) || document.querySelector('video');
+            if (!el) return null;
+            return { t: el.currentTime, d: el.duration, paused: el.paused, ended: el.ended };
+          }, selector);
+
+          if (st) {
+            if (st.ended) {
+              await t.page.evaluate((sel) => {
+                const el = document.querySelector(sel) || document.querySelector('video');
+                if (el) { el.currentTime = 0; el.play().catch(() => {}); }
+              }, selector);
+            }
+            t.totalWatched = st.t;
+            t.lastTime = st.t;
+            t.paused = st.paused;
+          }
+        } catch (e) {
+          t.errors.push(e.message);
+        }
+      }
+
+      await sleep(2000);
+    }
+  })();
+
+  res.json({ ok: true, tabs: created.length, sessionSeconds });
+});
+
+app.post('/api/stop', async (_req, res) => {
+  if (!session) return res.json({ ok: true, message: 'কোনো active session নেই' });
+  for (const t of session.tabs) {
+    try { await t.context?.close(); } catch {}
+  }
+  const final = session;
+  session = null;
+  res.json({ ok: true, final });
+});
+
+app.get('/api/status', async (_req, res) => {
+  if (!session) return res.json({ active: false, tabs: [], totalWatchTime: 0 });
+
+  let total = 0;
+  const tabs = session.tabs.map((t) => {
+    total += t.lastTime || 0;
+    return {
+      device: t.device,
+      isMobile: t.isMobile,
+      ua: t.info?.ua?.slice(0, 100) || 'N/A',
+      screen: t.info?.screen || null,
+      locale: t.info?.locale || null,
+      timezone: t.info?.timezone || null,
+      lastTime: t.lastTime,
+      paused: t.paused,
+      errors: t.errors.length ? t.errors.slice(-2) : null,
+      humanPauses: t.humanPauses,
+      uptime: Math.round((Date.now() - t.startedAt) / 1000),
+    };
+  });
+
+  res.json({ active: true, tabs, totalWatchTime: Math.round(total * 10) / 10, sessionSeconds: session.sessionSeconds });
+});
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(`Watch-Time Bot running: http://localhost:${PORT}`));
