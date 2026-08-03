@@ -1,10 +1,5 @@
 services:
   - type: web
     name: watch-time-tester
-    runtime: node
-    buildCommand: npm install
-    startCommand: npm start
-    envVars:
-      - key: NODE_ENV
-        value: production
+    dockerfilePath: Dockerfile
     plan: free
