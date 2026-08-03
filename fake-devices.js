@@ -100,8 +100,29 @@ const audioContext = window.AudioContext || window.webkitAudioContext;
 if (audioContext) {
   const originalCreate = audioContext.prototype.createOscillator;
   audioContext.prototype.createOscillator = function() {
-    const oscillator = originalCreate.call(this);
-    return oscillator;
+    return originalCreate.call(this);
   };
 }
+
+// --- YouTube specific ---
+// Fake chrome history & storage (YouTube checks for real browser internals)
+window.chrome.runtime.connect = window.chrome.runtime.connect || (() => ({ postMessage: () => {}, disconnect: () => {} }));
+window.chrome.runtime.sendMessage = window.chrome.runtime.sendMessage || (() => {});
+
+// Add CSS property access that real Chrome has
+try {
+  const css = getComputedStyle(document.documentElement);
+  const trash = css.animationName;
+  void trash;
+} catch(e) {}
+
+// Dimension/media query spoofing like real mobile browsers
+Object.defineProperty(window, 'outerWidth', { get: () => window.innerWidth });
+Object.defineProperty(window, 'outerHeight', { get: () => window.innerHeight });
+
+// Override notification request (YouTube bot check)
+Notification.requestPermission = Notification.requestPermission || (() => Promise.resolve('default'));
+
+// History API trace
+window.history.replaceState = window.history.replaceState;
 `;

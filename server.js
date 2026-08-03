@@ -27,7 +27,20 @@ let session = null;
 
 async function getBrowser() {
   if (!browser || !browser.isConnected()) {
-    browser = await chromium.launch({ headless: true });
+    browser = await chromium.launch({
+      headless: "new", // 'new' mode harder for bot detection (Chrome headless new)
+      args: [
+        '--disable-blink-features=AutomationControlled',
+        '--disable-dev-shm-usage',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-infobars',
+        '--window-position=0,0',
+        '--disable-notifications',
+      ],
+    });
   }
   return browser;
 }
