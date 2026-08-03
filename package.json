@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node run-test.js"
+    "test": "node run-test.js",
+    "build": "echo skip"
   },
   "dependencies": {
     "express": "^4.19.2",
