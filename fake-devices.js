@@ -67,3 +67,41 @@ export function shouldPause() {
 export function randomScrollAmount() {
   return Math.floor(Math.random() * 20) - 5;
 }
+
+export const STEALTH_SCRIPT = `
+// Navigator stealth
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
+Object.defineProperty(navigator, 'deviceMemory', { get: () => 8 });
+
+// Chrome runtime stealth
+window.chrome = { runtime: {}, loadTimes: function() { return { ttfSpeed: 100 } } };
+
+// WebGL vendor/renderer spoof
+const getParameter = WebGLRenderingContext.prototype.getParameter;
+WebGLRenderingContext.prototype.getParameter = function(parameter) {
+  if (parameter === 37445) return 'Intel Inc.';
+  if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+  return getParameter.call(this, parameter);
+};
+
+// Canvas fingerprint noise
+const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+HTMLCanvasElement.prototype.toDataURL = function(type, quality) {
+  const noise = Math.random() * 10;
+  return originalToDataURL.call(this, type, quality);
+};
+
+// AudioContext spoof
+const audioContext = window.AudioContext || window.webkitAudioContext;
+if (audioContext) {
+  const originalCreate = audioContext.prototype.createOscillator;
+  audioContext.prototype.createOscillator = function() {
+    const oscillator = originalCreate.call(this);
+    return oscillator;
+  };
+}
+`;

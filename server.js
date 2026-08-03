@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { chromium } from 'playwright';
-import { getDevicePool, pickRandomDevice, pickRandomLocale, pickRandomTimezone, randomViewport, randomDelay, shouldPause, randomScrollAmount } from './fake-devices.js';
+import { getDevicePool, pickRandomDevice, pickRandomLocale, pickRandomTimezone, randomViewport, randomDelay, shouldPause, randomScrollAmount, STEALTH_SCRIPT } from './fake-devices.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -86,6 +86,8 @@ app.post('/api/start', async (req, res) => {
 
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
 
+      await page.evaluate(STEALTH_SCRIPT);
+
       t.context = context;
       t.page = page;
       t.info = await page.evaluate(() => ({
@@ -95,6 +97,8 @@ app.post('/api/start', async (req, res) => {
         screen: `${screen.width}x${screen.height}`,
         locale: navigator.language,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        webdriver: navigator.webdriver,
+        plugins: navigator.plugins?.length || 0,
       }));
     } catch (e) {
       t.errors.push(String(e));
@@ -143,6 +147,11 @@ app.post('/api/start', async (req, res) => {
 
           const scrollAmt = randomScrollAmount();
           await t.page.evaluate((px) => window.scrollBy(0, px), scrollAmt);
+
+          await t.page.evaluate(() => {
+            const evt = new MouseEvent('mousemove', { bubbles: true, clientX: Math.random() * window.innerWidth, clientY: Math.random() * window.innerHeight });
+            document.dispatchEvent(evt);
+          });
 
           await sleep(randomDelay(1500, 4500));
 
@@ -203,6 +212,8 @@ app.get('/api/status', async (_req, res) => {
       errors: t.errors.length ? t.errors.slice(-2) : null,
       humanPauses: t.humanPauses,
       uptime: Math.round((Date.now() - t.startedAt) / 1000),
+      webdriver: t.info?.webdriver ?? null,
+      plugins: t.info?.plugins ?? null,
     };
   });
 
