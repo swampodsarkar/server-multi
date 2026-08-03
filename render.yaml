@@ -3,7 +3,7 @@ services:
     name: watch-time-tester
     runtime: node
     buildCommand: npm install
-    startCommand: npx playwright install chromium && npm start
+    startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production

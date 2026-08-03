@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "test": "node run-test.js",
-    "build": "echo skip"
+    "build": "echo skip",
+    "postinstall": "npx playwright install chromium"
   },
   "dependencies": {
     "express": "^4.19.2",
