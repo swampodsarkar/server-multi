@@ -60,6 +60,10 @@ app.post('/api/start', async (req, res) => {
       lastRecordedTime: 0,
       humanPauses: 0,
       isBotDetected: false,
+      viewsCounted: 0,
+      viewThresholds: [30, 60, 120, 180, 300],
+      reachedThresholds: new Set(),
+      isYouTube: targetUrl.includes('youtube.com') || targetUrl.includes('youtu.be'),
     };
 
     try {
@@ -86,7 +90,25 @@ app.post('/api/start', async (req, res) => {
 
       await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
 
+      if (t.isYouTube) {
+        await sleep(randomDelay(2000, 5000));
+        await page.evaluate(() => {
+          document.cookie = 'CONSENT=YES; path=/; domain=.youtube.com';
+        });
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 20000 });
+      }
+
       await page.evaluate(STEALTH_SCRIPT);
+
+      if (t.isYouTube) {
+        await sleep(randomDelay(1000, 3000));
+        await page.evaluate(() => {
+          const playBtn = document.querySelector('ytd-player yt-icon-button#button') ||
+                          document.querySelector('.ytp-large-play-button') ||
+                          document.querySelector('.ytp-play-button');
+          if (playBtn) playBtn.click();
+        });
+      }
 
       t.context = context;
       t.page = page;
@@ -99,6 +121,8 @@ app.post('/api/start', async (req, res) => {
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         webdriver: navigator.webdriver,
         plugins: navigator.plugins?.length || 0,
+        cookieEnabled: navigator.cookieEnabled,
+        doNotTrack: navigator.doNotTrack,
       }));
     } catch (e) {
       t.errors.push(String(e));
@@ -145,6 +169,17 @@ app.post('/api/start', async (req, res) => {
             }, selector);
           }
 
+          if (t.isYouTube && tick % 5 === 0) {
+            await t.page.evaluate(() => {
+              const thumbnails = document.querySelectorAll('ytd-thumbnail');
+              if (thumbnails.length > 0) {
+                const idx = Math.floor(Math.random() * thumbnails.length);
+                thumbnails[idx].click();
+              }
+            }).catch(() => {});
+            await sleep(randomDelay(3000, 8000));
+          }
+
           const scrollAmt = randomScrollAmount();
           await t.page.evaluate((px) => window.scrollBy(0, px), scrollAmt);
 
@@ -152,6 +187,14 @@ app.post('/api/start', async (req, res) => {
             const evt = new MouseEvent('mousemove', { bubbles: true, clientX: Math.random() * window.innerWidth, clientY: Math.random() * window.innerHeight });
             document.dispatchEvent(evt);
           });
+
+          if (t.isYouTube && Math.random() < 0.1) {
+            await t.page.evaluate(() => {
+              const likeBtn = document.querySelector('ytd-toggle-button-renderer.like-button') ||
+                              document.querySelector('.like-button');
+              if (likeBtn) likeBtn.click();
+            }).catch(() => {});
+          }
 
           await sleep(randomDelay(1500, 4500));
 
@@ -171,6 +214,13 @@ app.post('/api/start', async (req, res) => {
             t.totalWatched = st.t;
             t.lastTime = st.t;
             t.paused = st.paused;
+
+            for (const threshold of t.viewThresholds) {
+              if (st.t >= threshold && !t.reachedThresholds.has(threshold)) {
+                t.reachedThresholds.add(threshold);
+                t.viewsCounted++;
+              }
+            }
           }
         } catch (e) {
           t.errors.push(e.message);
@@ -214,6 +264,8 @@ app.get('/api/status', async (_req, res) => {
       uptime: Math.round((Date.now() - t.startedAt) / 1000),
       webdriver: t.info?.webdriver ?? null,
       plugins: t.info?.plugins ?? null,
+      viewsCounted: t.viewsCounted,
+      isYouTube: t.isYouTube,
     };
   });
 
